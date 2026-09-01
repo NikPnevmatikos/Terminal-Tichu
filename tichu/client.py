@@ -39,7 +39,7 @@ commands
   rematch                                    vote to play again
   help | ?      this text                    quit          leave the table
 
-cards: rank + suit letter.  ranks 2-9, T (or 10), J, Q, K, A
+cards: rank + suit letter.  ranks 2-10, J, Q, K, A ('T' also accepted for 10)
        suits s=spades(sword) h=hearts(star) d=diamonds(pagoda) c=clubs(jade)
        specials: 1 (Mah Jong), dog, phx (Phoenix), drg (Dragon)"""
 

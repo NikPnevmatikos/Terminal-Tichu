@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 
-_enabled = (
+_enabled = os.environ.get("TICHU_FORCE_COLOR") is not None or (
     hasattr(sys.stdout, "isatty")
     and sys.stdout.isatty()
     and os.environ.get("NO_COLOR") is None

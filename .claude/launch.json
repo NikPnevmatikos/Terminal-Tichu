@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tichu-web",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "tichu.web", "--bots", "3", "--bot-delay", "0.3"],
+      "port": 8080
+    }
+  ]
+}

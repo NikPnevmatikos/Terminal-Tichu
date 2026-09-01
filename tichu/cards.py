@@ -37,8 +37,9 @@ class Suit(Enum):
 
 SUIT_GLYPHS = {Suit.SWORD: "♠", Suit.STAR: "♥", Suit.PAGODA: "♦", Suit.JADE: "♣"}
 
-_RANK_TO_STR = {10: "T", 11: "J", 12: "Q", 13: "K", 14: "A"}
+_RANK_TO_STR = {10: "10", 11: "J", 12: "Q", 13: "K", 14: "A"}
 _STR_TO_RANK = {v: k for k, v in _RANK_TO_STR.items()}
+_STR_TO_RANK["T"] = 10  # accepted input shorthand, never displayed
 
 # Canonical codes for the special cards, plus accepted input aliases.
 SPECIAL_CODES = {DOG: "Dog", MAHJONG: "1", PHOENIX: "Phx", DRAGON: "Drg"}
@@ -57,10 +58,8 @@ def rank_to_str(rank: int) -> str:
 
 
 def parse_rank(token: str) -> Optional[int]:
-    """Parse a rank token like '2'..'10', 'T', 'J', 'Q', 'K', 'A' (2..14 only)."""
+    """Parse a rank token like '2'..'10' (or 'T'), 'J', 'Q', 'K', 'A' (2..14 only)."""
     t = token.strip().upper()
-    if t == "10":
-        return 10
     if t in _STR_TO_RANK:
         return _STR_TO_RANK[t]
     if t.isdigit():
@@ -93,7 +92,7 @@ class Card:
 
     @property
     def code(self) -> str:
-        """Stable wire/input code, e.g. 'Ks', 'Th', '5c', 'Dog', 'Phx'."""
+        """Stable wire/input code, e.g. 'Ks', '10h', '5c', 'Dog', 'Phx'."""
         if self.is_special:
             return SPECIAL_CODES[self.rank]
         return f"{rank_to_str(self.rank)}{self.suit.value}"

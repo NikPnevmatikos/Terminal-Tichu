@@ -14,7 +14,7 @@ Pure Python 3.10+ standard library. Nothing to install.
   prev: Alex · 8🂠    next: Kostas · 14🂠
       you · 11🂠
   table: pair [9♥ 9♣] by Kostas · 15 pts in trick
-  your hand (11): Dog 1 2♥ 5♠ 5♦ 8♣ T♥ J♦ Q♠ K♥ Phx
+  your hand (11): Dog 1 2♥ 5♠ 5♦ 8♣ 10♥ J♦ Q♠ K♥ Phx
 ──────────────────────────────────────────────────────────────
   → your turn: beat it or pass
 ```
@@ -50,10 +50,36 @@ directory — a reconnect token is kept in `.tichu_session.json` and you resume
 your seat with full state. Extra connections beyond four join as spectators.
 After a finished game, everyone types `rematch` to play again.
 
+## Players with nothing installed: host for browsers
+
+Your friends don't need Python, the repo, or a terminal — only a browser
+(phones work). One of you hosts:
+
+```bash
+python -m tichu.web
+```
+
+and everyone opens `http://<host-address>:8080`, types a name, and plays —
+same commands, same terminal look, with tap buttons for the common ones.
+Under the hood each visitor gets a real client session on the host, so a
+closed tab or dropped connection just resumes on reload. Terminal players
+can still join the same table the classic way on the game port (4271), and
+`--bots`, `--target`, `--bot-delay` work as usual.
+
+Friends outside your network? Either forward port 8080 on your router, or
+tunnel it with no router changes, e.g.:
+
+```bash
+cloudflared tunnel --url http://localhost:8080
+```
+
+(or `ngrok http 8080`, or share the machine over Tailscale) — then send
+everyone the URL it prints.
+
 ## How to play
 
-Cards are typed as **rank + suit letter** — ranks `2`–`9`, `T` (or `10`),
-`J`, `Q`, `K`, `A`; suits `s`♠ `h`♥ `d`♦ `c`♣ (standing in for Tichu's
+Cards are typed as **rank + suit letter** — ranks `2`–`10`, `J`, `Q`, `K`,
+`A` (`T` is accepted shorthand for `10`); suits `s`♠ `h`♥ `d`♦ `c`♣ (standing in for Tichu's
 Sword, Star, Pagoda and Jade). The specials are `1` (Mah Jong), `dog`,
 `phx` (Phoenix) and `drg` (Dragon).
 

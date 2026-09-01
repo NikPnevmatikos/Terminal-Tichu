@@ -6,6 +6,8 @@ print(
   host a table:   python -m tichu.server [--port 4271] [--target 1000] [--bots N]
   join a table:   python -m tichu.client --host <server> [--port 4271] --name <you>
   watch a table:  python -m tichu.client --host <server> --spectate
+  host for browsers (players need nothing installed):
+                  python -m tichu.web [--port 8080] [--bots N]
 
 See README.md for the rules reference and the full command language."""
 )

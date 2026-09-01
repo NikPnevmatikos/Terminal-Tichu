@@ -21,6 +21,13 @@ Pure Python 3.10+ standard library. Nothing to install.
 
 ## Quick start
 
+```bash
+pip install terminal-tichu
+```
+
+(installs the `tichu-server`, `tichu-client` and `tichu-web` commands — or
+run straight from a clone of this repo with `python -m tichu.server` etc.)
+
 Host a table (one of you, on a machine the others can reach):
 
 ```bash
@@ -186,3 +193,12 @@ Dragon gifting, bombs in and out of turn, double wins, scoring transfers
 and bonuses, full bot-vs-bot games on many seeds with per-hand scoring
 invariants (every hand's card points total exactly 100), a complete game
 played over real sockets, and the client's renderer and command parser.
+
+## Credits & license
+
+Tichu was designed by **Urs Hostettler** (Fata Morgana, 1991), building on
+the Chinese climbing-game family. This is an unofficial fan implementation —
+not affiliated with or endorsed by Fata Morgana or Rio Grande Games. If you
+enjoy it, buy the real card deck.
+
+The code is original and MIT-licensed (see [LICENSE](LICENSE)).

@@ -124,8 +124,8 @@ class Client:
         return self.state["names"] if self.state else ["?"] * 4
 
     def pname(self, seat: Optional[int]) -> str:
-        """A player's name in their team's color: your side green (you in
-        bold, your partner starred), the opponents red."""
+        """A player's name: your side in green (you in bold, your partner
+        starred), the opponents in the plain text color."""
         if seat is None:
             return "?"
         n = self.names()[seat]
@@ -147,8 +147,9 @@ class Client:
         return "WE" if team == self.my_team() else "THEY"
 
     def team_color(self, team: int):
-        """Green for your side (N/S when spectating), red for the other."""
-        return ansi.green if team == self.my_team() else ansi.red
+        """Green for your side (N/S when spectating); the other side is left
+        uncolored, so red stays reserved for bombs, errors and hearts."""
+        return ansi.green if team == self.my_team() else str
 
     def team_name(self, team: int) -> str:
         return self.team_color(team)(self.team_label(team))

@@ -113,8 +113,8 @@ Sword, Star, Pagoda and Jade). The specials are `1` (Mah Jong), `dog`,
 
 Typing bare card codes (`5s 5d`) is also accepted as a play.
 
-Your side is always **green** in the log and the opponents **red**. The
-board is the table seen from your chair: partner across, the opponent who
+Your side is always **green** in the log (the opponents stay uncolored).
+The board is the table seen from your chair: partner across, the opponent who
 plays next on your left, the one who played before you on your right, and
 whatever lies on the table in the middle; `▸` marks whoever everyone is
 waiting for. When someone throws a **bomb** the window flashes

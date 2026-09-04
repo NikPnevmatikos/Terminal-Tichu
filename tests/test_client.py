@@ -220,8 +220,9 @@ class TestClientRendering(unittest.TestCase):
         self.assertIn("                       Tester", plain)  # partner across
         self.assertIn("                       GRAND!", plain)
         self.assertIn("  ▸ Right           │ single [A♦]          │   Left", plain)
-        self.assertIn("\x1b[31m", next(l for l in lines if "Right" in vis(l)))  # opponents red
         self.assertIn("\x1b[32m", next(l for l in lines if vis(l).strip() == "you"))  # you green
+        self.assertIn("\x1b[32m", next(l for l in lines if "Tester" in vis(l)))  # partner green
+        self.assertNotIn("\x1b[31m", "".join(lines))  # opponents are not colored: no red at all
 
     def test_table_box_wraps_long_combinations(self):
         ansi.set_enabled(False)

@@ -176,6 +176,7 @@ PAGE = """<!doctype html>
   .b{font-weight:700} .dim{opacity:.55} .red{color:#f47067} .green{color:#57ab5a}
   .yellow{color:#c69026} .blue{color:#539bf5} .magenta{color:#b083f0}
   .cyan{color:#39c5cf} .white{color:#f0f3f6}
+  .bg-green{background:#2ea043;color:#fff} .bg-red{background:#da3633;color:#fff}
   .hidden{display:none!important}
 </style></head>
 <body>
@@ -203,7 +204,8 @@ PAGE = """<!doctype html>
 <script>
 const $ = id => document.getElementById(id);
 const CLS = {"0":null,"1":"b","2":"dim","31":"red","32":"green","33":"yellow",
-             "34":"blue","35":"magenta","36":"cyan","97":"white"};
+             "34":"blue","35":"magenta","36":"cyan","97":"white",
+             "41":"bg-red","42":"bg-green"};
 function ansiToHtml(s){
   let out = "", open = 0;
   for (const part of s.split(/(\\x1b\\[[0-9;]*m)/)){
@@ -218,8 +220,27 @@ function ansiToHtml(s){
   }
   return out + "</span>".repeat(open);
 }
+// The client flashes a real terminal with OSC 11 (set the background) and
+// OSC 111 (restore it). Neither is text: strip them and flash the page
+// instead - for live lines only, never for history replayed after a reload.
+const OSC = /\\x1b\\]([^\\x07\\x1b]*)(?:\\x07|\\x1b\\\\)/g;
+function stripOsc(s, live){
+  return s.replace(OSC, (_, body) => {
+    const m = body.match(/^11;(#[0-9a-fA-F]{6})$/);
+    if (m && live) flash(m[1]);
+    return "";
+  });
+}
+function flash(color){
+  const b = document.body;
+  b.style.transition = "none"; b.style.background = color;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    b.style.transition = "background .6s ease-out"; b.style.background = "";
+  }));
+}
 let sid = null, es = null;
-function addLine(t){
+function addLine(t, live){
+  t = stripOsc(t, live);
   const el = $("log"), stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
   const d = document.createElement("div");
   d.innerHTML = ansiToHtml(t) || "\\u00a0";
@@ -232,7 +253,7 @@ function attach(fromIdx){
   es.onmessage = e => {
     const m = JSON.parse(e.data);
     if (m.end){ setStatus("session ended — reload to rejoin"); es.close(); localStorage.removeItem("tichu_sid"); return; }
-    addLine(m.d);
+    addLine(m.d, !m.h);
   };
   es.onopen = () => setStatus("connected");
   es.onerror = () => setStatus("reconnecting…");
@@ -365,6 +386,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         s.listeners += 1
         s.last_seen = time.time()
+        with s.cond:
+            backlog = len(s.lines)  # replayed history: the page must not re-flash it
         try:
             while True:
                 with s.cond:
@@ -374,7 +397,7 @@ class Handler(BaseHTTPRequestHandler):
                     chunk = s.lines[idx:]
                     ended = not s.alive and idx + len(chunk) >= len(s.lines)
                 for line in chunk:
-                    payload = json.dumps({"d": line})
+                    payload = json.dumps({"d": line, "h": 1} if idx < backlog else {"d": line})
                     self.wfile.write(f"id: {idx}\ndata: {payload}\n\n".encode())
                     idx += 1
                 if ended:

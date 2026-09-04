@@ -60,6 +60,19 @@ def cards_str(codes: list[str]) -> str:
     return " ".join(card_str(c) for c in codes)
 
 
+def combo_label(combo: str) -> str:
+    """A combination's name for the log, minus the cards (they are printed
+    right next to it): 'single A♦' -> 'single', 'pair (9♥ 9♣)' -> 'pair'.
+    'straight to 7 (...)' keeps its 'to 7' - that part is information."""
+    label = combo.split("(")[0].strip()
+    return "single" if label.startswith("single ") else label
+
+
+BOARD_WIDTH = 62             # the rules the board is drawn between
+TABLE_COLS = (4, 20, 5, 20)  # team | player | cards | status -> 62 wide
+FLASH_SECONDS = 0.35         # how long the window stays green / red
+
+
 class Client:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -69,6 +82,8 @@ class Client:
         self.state: Optional[dict] = None
         self.writer: Optional[asyncio.StreamWriter] = None
         self._last_prompt_sig = None
+        self.no_flash = bool(getattr(args, "no_flash", False)
+                             or os.environ.get("TICHU_NO_FLASH"))
 
     # ------------------------------------------------------------- #
     # small helpers
@@ -81,16 +96,19 @@ class Client:
         return self.state["names"] if self.state else ["?"] * 4
 
     def pname(self, seat: Optional[int]) -> str:
+        """A player's name in their team's color: your side green (you in
+        bold, your partner starred), the opponents red."""
         if seat is None:
             return "?"
         n = self.names()[seat]
+        color = self.team_color(seat % 2)
         if self.seat is None:
-            return n
+            return color(n)
         if seat == self.seat:
-            return ansi.bold("you")
+            return ansi.bold(color("you"))
         if seat == (self.seat + 2) % 4:
-            return f"{n}*"  # partner
-        return n
+            return color(f"{n}*")  # partner
+        return color(n)
 
     def my_team(self) -> int:
         return (self.seat or 0) % 2
@@ -99,6 +117,13 @@ class Client:
         if self.seat is None:
             return ["N/S", "E/W"][team]
         return "WE" if team == self.my_team() else "THEY"
+
+    def team_color(self, team: int):
+        """Green for your side (N/S when spectating), red for the other."""
+        return ansi.green if team == self.my_team() else ansi.red
+
+    def team_name(self, team: int) -> str:
+        return self.team_color(team)(self.team_label(team))
 
     def hand_cards(self) -> list[Card]:
         if not self.state or "hand" not in self.state:
@@ -128,8 +153,8 @@ class Client:
         mine, theirs = self.my_team(), 1 - self.my_team()
         return (
             f"hand {st['hand_no']} · "
-            f"{self.team_label(mine)} {ansi.bold(str(st['scores'][mine]))} : "
-            f"{self.team_label(theirs)} {ansi.bold(str(st['scores'][theirs]))} "
+            f"{self.team_name(mine)} {ansi.bold(str(st['scores'][mine]))} : "
+            f"{self.team_name(theirs)} {ansi.bold(str(st['scores'][theirs]))} "
             f"(playing to {st['target']})"
         )
 
@@ -138,30 +163,18 @@ class Client:
         if not st:
             print(ansi.dim("no game state yet"))
             return
-        me = self.seat if self.seat is not None else 0
         print()
-        print(ansi.dim("─" * 62))
+        print(ansi.dim("─" * BOARD_WIDTH))
         print(f"  {self.show_scores_line()}")
-        marks = []
-        for s in range(4):
-            call = st["calls"][s]
-            tag = ""
-            if call:
-                tag = ansi.byellow(" GRAND!") if call == "grand" else ansi.yellow(" tichu!")
-            out = ""
-            if s in st["out_order"]:
-                out = ansi.dim(f" out#{st['out_order'].index(s) + 1}")
-            conn = "" if st.get("connected", [True] * 4)[s] else ansi.bred(" ⚠offline")
-            marks.append(f"{self.pname(s)} · {st['hand_counts'][s]}🂠{tag}{out}{conn}")
-        print(f"      partner: {marks[(me + 2) % 4]}")
-        print(f"  prev: {marks[(me + 3) % 4]}    next: {marks[(me + 1) % 4]}")
-        print(f"      {marks[me]}" if self.seat is not None else f"      (spectating)")
+        if self.seat is None:
+            print(ansi.dim("  (spectating)"))
+        for line in self.players_table():
+            print(line)
         top = st.get("top")
         if top:
             pts = st.get("trick_points", 0)
-            print(f"  table: {top['combo'].split('(')[0].strip()} "
-                  f"[{cards_str(top['cards'])}] by {self.pname(top['seat'])}"
-                  f" · {pts} pts in trick")
+            print(f"  table: {combo_label(top['combo'])} [{cards_str(top['cards'])}] "
+                  f"by {self.pname(top['seat'])} · {pts} pts in trick")
         elif st["phase"] == "playing":
             who = "your lead" if st["turn"] == self.seat else self.pname(st["turn"]) + " leads"
             print(f"  table: {ansi.dim('empty — ' + who)}")
@@ -170,7 +183,92 @@ class Client:
         if self.seat is not None and "hand" in st:
             hand = st["hand"]
             print(f"  your hand ({len(hand)}): {cards_str(hand)}")
-        print(ansi.dim("─" * 62))
+        print(ansi.dim("─" * BOARD_WIDTH))
+
+    def players_table(self) -> list[str]:
+        """The four seats as a box table grouped by team: your side first
+        (you, partner), then the opponents in play order (next, prev) -
+        seat numbers when spectating. ▸ marks whose move the table waits for."""
+        st = self.state
+        if self.seat is None:
+            groups = [(0, [(0, "seat 0"), (2, "seat 2")]),
+                      (1, [(1, "seat 1"), (3, "seat 3")])]
+        else:
+            me, mine = self.seat, self.my_team()
+            groups = [(mine, [(me, ""), ((me + 2) % 4, "partner")]),
+                      (1 - mine, [((me + 1) % 4, "next"), ((me + 3) % 4, "prev")])]
+        active = None
+        if st["phase"] == "playing":
+            active = st["turn"]
+        elif st["phase"] == "dragon_gift":
+            active = st.get("dragon_chooser")
+        connected = st.get("connected", [True] * 4)
+
+        header = [[(h, ansi.dim)] for h in ("team", "player", "cards", "status")]
+        lines = [self._table_rule("┌", "┬", "┐"), self._table_row(*header)]
+        for team, seats in groups:
+            color = self.team_color(team)
+            lines.append(self._table_rule("├", "┼", "┤"))
+            for i, (s, role) in enumerate(seats):
+                name = "you" if s == self.seat else self.names()[s]
+                if len(name) > 10:
+                    name = name[:9] + "…"
+                style = (lambda t, c=color: ansi.bold(c(t))) if s == self.seat else color
+                player = [("▸ ", ansi.cyan) if s == active else ("  ", None),
+                          (name, style), (" " * (11 - len(name)), None), (role, ansi.dim)]
+                tags = []
+                if st["calls"][s] == "grand":
+                    tags.append(("GRAND!", ansi.byellow))
+                elif st["calls"][s]:
+                    tags.append(("tichu!", ansi.yellow))
+                if s in st["out_order"]:
+                    tags.append((f"out#{st['out_order'].index(s) + 1}", ansi.dim))
+                if not connected[s]:
+                    tags.append(("offline", ansi.bred))
+                status = [piece for tag in tags for piece in ((" ", None), tag)][1:]
+                lines.append(self._table_row(
+                    [(self.team_label(team), color)] if i == 0 else [],
+                    player, [(str(st["hand_counts"][s]), None)], status))
+        lines.append(self._table_rule("└", "┴", "┘"))
+        return lines
+
+    @staticmethod
+    def _table_row(*cells) -> str:
+        """One row; each cell is a list of (text, style) pieces, padded by its
+        visible length so color codes never push the columns around."""
+        def fmt(pieces, width, center):
+            plain = "".join(t for t, _ in pieces)
+            gap = max(0, width - len(plain))
+            left = gap // 2 if center else 0
+            styled = "".join(fn(t) if fn and t else t for t, fn in pieces)
+            return " " * left + styled + " " * (gap - left)
+        bar = ansi.dim("│")
+        centered = (False, False, True, False)
+        inner = [fmt(c, w, m) for c, w, m in zip(cells, TABLE_COLS, centered)]
+        return bar + bar.join(f" {c} " for c in inner) + bar
+
+    @staticmethod
+    def _table_rule(left: str, mid: str, right: str) -> str:
+        return ansi.dim(left + mid.join("─" * (w + 2) for w in TABLE_COLS) + right)
+
+    def flash(self, color: str, text: str) -> None:
+        """Shout: a full-width colored bar in the log and - where the terminal
+        understands OSC 11 - a brief flash of the whole window (the browser
+        page flashes too). --no-flash / TICHU_NO_FLASH=1 keeps only the bar."""
+        paint = ansi.on_green if color == "green" else ansi.on_red
+        if not self.no_flash:
+            sys.stdout.write(ansi.flash_on(color))
+        print(paint(f"  {text}".ljust(BOARD_WIDTH)))
+        if not self.no_flash and ansi.enabled():
+            try:
+                asyncio.get_running_loop().call_later(FLASH_SECONDS, self._unflash)
+            except RuntimeError:  # no event loop running (tests): undo at once
+                self._unflash()
+
+    @staticmethod
+    def _unflash() -> None:
+        sys.stdout.write(ansi.flash_off())
+        sys.stdout.flush()
 
     def prompt_hint(self) -> None:
         """Context-sensitive one-liner about what is expected of you now."""
@@ -285,8 +383,8 @@ class Client:
         t = e.get("type")
         if t == "hand_start":
             print(ansi.bold(f"\n──── hand {e['hand_no']} "
-                            f"({self.team_label(0)} {e['scores'][0]} : "
-                            f"{self.team_label(1)} {e['scores'][1]}) ────"))
+                            f"({self.team_name(0)} {e['scores'][0]} : "
+                            f"{self.team_name(1)} {e['scores'][1]}) ────"))
         elif t == "called":
             word = "GRAND TICHU" if e["call"] == "grand" else "TICHU"
             print(ansi.byellow(f"  ★ {self.pname(e['seat'])} calls {word}!"))
@@ -313,11 +411,14 @@ class Client:
             else:
                 print(f"  {self.pname(e['leader'])} holds the Mah Jong and leads")
         elif t == "played":
-            tag = ""
+            print(f"  {self.pname(e['seat'])}: {combo_label(e['combo'])} "
+                  f"[{cards_str(e['cards'])}]")
+            who = "you" if e["seat"] == self.seat else self.names()[e["seat"]]
             if e.get("bomb"):
-                tag = ansi.bred(" 💥 BOMB") + (" (out of turn!)" if e.get("out_of_turn") else "")
-            print(f"  {self.pname(e['seat'])}: {e['combo'].split('(')[0].strip()} "
-                  f"[{cards_str(e['cards'])}]{tag}")
+                extra = " — out of turn!" if e.get("out_of_turn") else ""
+                self.flash("red", f"💥  BOMB  by {who}{extra}")
+            elif "Drg" in e["cards"]:
+                self.flash("green", f"🐉  DRAGON  played by {who}")
         elif t == "passed":
             print(ansi.dim(f"  {self.pname(e['seat'])} passes"))
         elif t == "wish_set":
@@ -348,14 +449,14 @@ class Client:
         elif t == "game_over":
             w = e["winner"]
             print(ansi.bold(ansi.green(
-                f"\n════ GAME OVER — {self.team_label(w)} win "
+                f"\n════ GAME OVER — {self.team_name(w)} win "
                 f"{e['scores'][w]} : {e['scores'][1 - w]} ════")))
             print(ansi.dim("  type 'rematch' to play again"))
 
     def print_hand_end(self, e: dict) -> None:
         print(ansi.bold("  ── hand result ──"))
         if e["double_win"]:
-            team = self.team_label(e["first_out"] % 2)
+            team = self.team_name(e["first_out"] % 2)
             print(ansi.byellow(f"  DOUBLE WIN for {team} (+{200})!"))
         else:
             print(f"  first out: {self.pname(e['first_out'])}")
@@ -364,9 +465,9 @@ class Client:
             what = "grand tichu" if b["call"] == "grand" else "tichu"
             print(f"  {self.pname(b['seat'])} {what}: {sign}{b['delta']}")
         t0, t1 = e["team_points"]
-        print(f"  this hand: {self.team_label(0)} {t0:+} · {self.team_label(1)} {t1:+}")
+        print(f"  this hand: {self.team_name(0)} {t0:+} · {self.team_name(1)} {t1:+}")
         s0, s1 = e["scores"]
-        print(ansi.bold(f"  totals:    {self.team_label(0)} {s0} · {self.team_label(1)} {s1}"))
+        print(ansi.bold(f"  totals:    {self.team_name(0)} {s0} · {self.team_name(1)} {s1}"))
 
     # ------------------------------------------------------------- #
     # user input
@@ -576,6 +677,8 @@ def main() -> None:
     ap.add_argument("--token", default=None, help="reconnect token (usually automatic)")
     ap.add_argument("--fresh", action="store_true", help="ignore any saved session token")
     ap.add_argument("--no-color", action="store_true")
+    ap.add_argument("--no-flash", action="store_true",
+                    help="don't flash the window on bombs / the Dragon (or TICHU_NO_FLASH=1)")
     args = ap.parse_args()
     if args.no_color:
         ansi.set_enabled(False)

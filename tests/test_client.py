@@ -5,6 +5,7 @@ import argparse
 import contextlib
 import io
 import random
+import re
 import unittest
 
 from tichu import ansi
@@ -21,6 +22,30 @@ def make_client(seat=0):
     c = Client(args)
     c.seat = seat
     return c
+
+
+def sample_state(**over):
+    """Mid-trick snapshot as seat 0: partner called Tichu, Left is out,
+    Right is offline and holds the table with a single Ace."""
+    st = {
+        "names": ["Tester", "Left", "Part", "Right"],
+        "scores": [240, 185], "hand_no": 3, "target": 1000,
+        "hand": ["2h", "5s"], "calls": [None, None, "tichu", None], "out_order": [1],
+        "hand_counts": [11, 0, 11, 14], "picked_up": [True] * 4,
+        "phase": "playing", "turn": 0,
+        "top": {"seat": 3, "cards": ["Ad"], "combo": "single A♦", "kind": "single",
+                "power": 14, "size": 1, "bomb": False},
+        "wish": None, "trick_points": 0, "exchange_submitted": True,
+        "connected": [True, True, True, False],
+    }
+    st.update(over)
+    return st
+
+
+DRAGON_PLAY = {"type": "played", "seat": 3, "cards": ["Drg"], "combo": "single Drg",
+               "kind": "single", "bomb": False, "out_of_turn": False}
+BOMB_PLAY = {"type": "played", "seat": 1, "cards": ["5s", "5h", "5d", "5c"],
+             "combo": "bomb (5♠ 5♥ 5♦ 5♣)", "kind": "bomb", "bomb": True, "out_of_turn": True}
 
 
 class TestClientRendering(unittest.TestCase):
@@ -132,6 +157,111 @@ class TestClientRendering(unittest.TestCase):
             client.on_message({"event": "state", "data": view})
             client.handle_line("board")
         self.assertIn("spectating", out.getvalue())
+        self.assertIn("│ N/S  │   A          seat 0  │", out.getvalue())
+        self.assertIn("│ E/W  │   B          seat 1  │", out.getvalue())
+
+    def test_table_and_log_show_the_cards_once(self):
+        ansi.set_enabled(False)
+        client = make_client(seat=0)
+        client.state = sample_state()
+        straight = {"type": "played", "seat": 1, "cards": ["3s", "4h", "5d", "6c", "7s"],
+                    "combo": "straight to 7 (3♠ 4♥ 5♦ 6♣ 7♠)", "kind": "straight",
+                    "bomb": False, "out_of_turn": False}
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            client.render_board()
+            client.on_game_event(dict(DRAGON_PLAY, cards=["Ad"], combo="single A♦"))
+            client.on_game_event(straight)
+        text = out.getvalue()
+        self.assertIn("table: single [A♦] by Right · 0 pts in trick", text)
+        self.assertIn("  Right: single [A♦]", text)
+        self.assertIn("  Left: straight to 7 [3♠ 4♥ 5♦ 6♣ 7♠]", text)
+        self.assertNotIn("single A♦ [", text)
+
+    def test_players_table_groups_the_teams(self):
+        ansi.set_enabled(False)
+        client = make_client(seat=0)
+        client.state = sample_state()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            client.render_board()
+        lines = out.getvalue().splitlines()
+        self.assertEqual([l for l in lines if l.startswith("│")], [
+            "│ team │ player               │ cards │ status               │",
+            "│ WE   │ ▸ you                │  11   │                      │",
+            "│      │   Part       partner │  11   │ tichu!               │",
+            "│ THEY │   Left       next    │   0   │ out#1                │",
+            "│      │   Right      prev    │  14   │ offline              │",
+        ])
+        # the box is exactly as wide as the rules it sits between
+        for line in lines:
+            if line and line[0] in "─┌├└│":
+                self.assertEqual(len(line), 62, line)
+
+    def test_players_table_stays_aligned_in_color(self):
+        ansi.set_enabled(True)
+        try:
+            client = make_client(seat=2)
+            client.state = sample_state(turn=3, calls=["grand", None, None, None],
+                                        connected=[False, True, True, True])
+            lines = client.players_table()
+        finally:
+            ansi.set_enabled(False)
+        plain = [re.sub(r"\x1b\[[0-9;]*m", "", line) for line in lines]
+        self.assertEqual({len(line) for line in plain}, {62}, plain)
+        self.assertIn("│ WE   │   you                │  11   │", plain[3])
+        self.assertIn("│      │   Tester     partner │  11   │ GRAND! offline", plain[4])
+        self.assertIn("│ THEY │ ▸ Right      next    │  14   │", plain[6])
+        self.assertIn("│      │   Left       prev    │   0   │ out#1", plain[7])
+        self.assertIn("\x1b[32m", lines[3])  # our side is green...
+        self.assertIn("\x1b[31m", lines[6])  # ...the opponents red
+
+    def test_bomb_and_dragon_flash_the_window(self):
+        ansi.set_enabled(True)
+        try:
+            client = make_client(seat=0)
+            client.state = sample_state()
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                client.on_game_event(DRAGON_PLAY)
+            text = out.getvalue()
+            self.assertIn("\x1b]11;#2ea043\x07", text)  # the window goes green...
+            self.assertIn("\x1b]111\x07", text)          # ...and back
+            self.assertIn("\x1b[1;97;42m", text)         # plus a green bar in the log
+            self.assertIn("DRAGON  played by Right", text)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                client.on_game_event(BOMB_PLAY)
+            text = out.getvalue()
+            self.assertIn("\x1b]11;#da3633\x07", text)
+            self.assertIn("\x1b[1;97;41m", text)
+            self.assertIn("BOMB  by Left — out of turn!", text)
+            # --no-flash keeps the bar but leaves the window alone
+            client.no_flash = True
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                client.on_game_event(BOMB_PLAY)
+            self.assertNotIn("\x1b]11;", out.getvalue())
+            self.assertIn("\x1b[1;97;41m", out.getvalue())
+        finally:
+            ansi.set_enabled(False)
+        # without colors there is no flash, but the shout is still there
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            client.no_flash = False
+            client.on_game_event(DRAGON_PLAY)
+        self.assertNotIn("\x1b", out.getvalue())
+        self.assertIn("DRAGON  played by Right", out.getvalue())
+
+
+class TestAnsi(unittest.TestCase):
+    def test_nested_style_survives_the_inner_reset(self):
+        ansi.set_enabled(True)
+        try:
+            s = ansi.dim("a " + ansi.green("b") + " c")
+        finally:
+            ansi.set_enabled(False)
+        self.assertEqual(s, "\x1b[2ma \x1b[32mb\x1b[0m\x1b[2m c\x1b[0m")
+
+    def test_disabled_means_plain_text(self):
+        ansi.set_enabled(False)
+        self.assertEqual(ansi.on_red("x"), "x")
+        self.assertEqual(ansi.flash_on("red"), "")
+        self.assertEqual(ansi.flash_off(), "")
 
 
 if __name__ == "__main__":

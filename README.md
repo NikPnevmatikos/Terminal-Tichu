@@ -10,16 +10,16 @@ Pure Python 3.10+ standard library. Nothing to install.
 ```
 ──────────────────────────────────────────────────────────────
   hand 3 · WE 240 : THEY 185 (playing to 1000)
-┌──────┬──────────────────────┬───────┬──────────────────────┐
-│ team │ player               │ cards │ status               │
-├──────┼──────────────────────┼───────┼──────────────────────┤
-│ WE   │ ▸ you                │  11   │                      │
-│      │   Maria      partner │  11   │ tichu!               │
-├──────┼──────────────────────┼───────┼──────────────────────┤
-│ THEY │   Kostas     next    │  14   │                      │
-│      │   Alex       prev    │   8   │                      │
-└──────┴──────────────────────┴───────┴──────────────────────┘
-  table: pair [9♥ 9♣] by Kostas · 15 pts in trick
+                       Maria
+                       partner · 11 cards
+                       tichu!
+                    ┌──────────────────────┐
+    Kostas          │ pair [9♥ 9♣]         │   Alex
+    next · 14 cards │ by Kostas · 15 pts   │   prev · 8 cards
+                    │                      │
+                    └──────────────────────┘
+                          ▸ you
+                            11 cards
   your hand (11): Dog 1 2♥ 5♠ 5♦ 8♣ 10♥ J♦ Q♠ K♥ Phx
 ──────────────────────────────────────────────────────────────
   → your turn: beat it or pass
@@ -113,9 +113,11 @@ Sword, Star, Pagoda and Jade). The specials are `1` (Mah Jong), `dog`,
 
 Typing bare card codes (`5s 5d`) is also accepted as a play.
 
-Your side is always **green** in the log and the opponents **red**, and the
-board lists the four seats as a table grouped by team, with `▸` on whoever
-the table is waiting for. When someone throws a **bomb** the window flashes
+Your side is always **green** in the log and the opponents **red**. The
+board is the table seen from your chair: partner across, the opponent who
+plays next on your left, the one who played before you on your right, and
+whatever lies on the table in the middle; `▸` marks whoever everyone is
+waiting for. When someone throws a **bomb** the window flashes
 **red**; when the **Dragon** is played it flashes **green** (a colored bar
 is printed as well, so a terminal that ignores the flash still shouts).
 Pass `--no-flash` (or set `TICHU_NO_FLASH=1`) to keep just the bar.

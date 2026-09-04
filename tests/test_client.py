@@ -10,7 +10,7 @@ import unittest
 
 from tichu import ansi
 from tichu.bot import Bot
-from tichu.client import Client
+from tichu.client import Client, vis
 from tichu.game import Phase, TichuGame
 
 
@@ -156,9 +156,12 @@ class TestClientRendering(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             client.on_message({"event": "state", "data": view})
             client.handle_line("board")
-        self.assertIn("spectating", out.getvalue())
-        self.assertIn("│ N/S  │   A          seat 0  │", out.getvalue())
-        self.assertIn("│ E/W  │   B          seat 1  │", out.getvalue())
+        text = out.getvalue()
+        self.assertIn("spectating", text)
+        # seats are numbered as in the lobby; the game is in its first phase
+        self.assertIn("[0] A", text)
+        self.assertIn("[2] C", text)
+        self.assertIn("Grand Tichu?", text)
 
     def test_table_and_log_show_the_cards_once(self):
         ansi.set_enabled(False)
@@ -172,47 +175,70 @@ class TestClientRendering(unittest.TestCase):
             client.on_game_event(dict(DRAGON_PLAY, cards=["Ad"], combo="single A♦"))
             client.on_game_event(straight)
         text = out.getvalue()
-        self.assertIn("table: single [A♦] by Right · 0 pts in trick", text)
-        self.assertIn("  Right: single [A♦]", text)
+        self.assertIn("│ single [A♦]          │", text)   # on the table
+        self.assertIn("│ by Right · 0 pts     │", text)
+        self.assertIn("  Right: single [A♦]", text)        # in the log
         self.assertIn("  Left: straight to 7 [3♠ 4♥ 5♦ 6♣ 7♠]", text)
         self.assertNotIn("single A♦ [", text)
+        self.assertNotIn("single A♦]", text)
 
-    def test_players_table_groups_the_teams(self):
+    def test_seating_puts_partner_across_and_opponents_beside(self):
         ansi.set_enabled(False)
         client = make_client(seat=0)
         client.state = sample_state()
         with contextlib.redirect_stdout(io.StringIO()) as out:
             client.render_board()
         lines = out.getvalue().splitlines()
-        self.assertEqual([l for l in lines if l.startswith("│")], [
-            "│ team │ player               │ cards │ status               │",
-            "│ WE   │ ▸ you                │  11   │                      │",
-            "│      │   Part       partner │  11   │ tichu!               │",
-            "│ THEY │   Left       next    │   0   │ out#1                │",
-            "│      │   Right      prev    │  14   │ offline              │",
+        first = next(i for i, l in enumerate(lines) if l.strip() == "Part")
+        self.assertEqual(lines[first:first + 10], [
+            "                       Part",
+            "                       partner · 11 cards",
+            "                       tichu!",
+            "                    ┌──────────────────────┐",
+            "    Left            │ single [A♦]          │   Right",
+            "    next · 0 cards  │ by Right · 0 pts     │   prev · 14 cards",
+            "    out#1           │                      │   offline",
+            "                    └──────────────────────┘",
+            "                          ▸ you",
+            "                            11 cards",
         ])
-        # the box is exactly as wide as the rules it sits between
-        for line in lines:
-            if line and line[0] in "─┌├└│":
-                self.assertEqual(len(line), 62, line)
+        self.assertTrue(all(len(l) <= 62 for l in lines), [len(l) for l in lines])
 
-    def test_players_table_stays_aligned_in_color(self):
+    def test_seating_stays_aligned_in_color(self):
         ansi.set_enabled(True)
         try:
             client = make_client(seat=2)
             client.state = sample_state(turn=3, calls=["grand", None, None, None],
                                         connected=[False, True, True, True])
-            lines = client.players_table()
+            lines = client.seating()
         finally:
             ansi.set_enabled(False)
-        plain = [re.sub(r"\x1b\[[0-9;]*m", "", line) for line in lines]
-        self.assertEqual({len(line) for line in plain}, {62}, plain)
-        self.assertIn("│ WE   │   you                │  11   │", plain[3])
-        self.assertIn("│      │   Tester     partner │  11   │ GRAND! offline", plain[4])
-        self.assertIn("│ THEY │ ▸ Right      next    │  14   │", plain[6])
-        self.assertIn("│      │   Left       prev    │   0   │ out#1", plain[7])
-        self.assertIn("\x1b[32m", lines[3])  # our side is green...
-        self.assertIn("\x1b[31m", lines[6])  # ...the opponents red
+        plain = [vis(l) for l in lines]
+        self.assertTrue(all(len(l) <= 62 for l in plain), plain)
+        # the box borders sit in the same columns on every row
+        self.assertEqual({(l.find("│"), l.rfind("│")) for l in plain if "│" in l}, {(20, 43)})
+        self.assertIn("                       Tester", plain)  # partner across
+        self.assertIn("                       GRAND!", plain)
+        self.assertIn("  ▸ Right           │ single [A♦]          │   Left", plain)
+        self.assertIn("\x1b[31m", next(l for l in lines if "Right" in vis(l)))  # opponents red
+        self.assertIn("\x1b[32m", next(l for l in lines if vis(l).strip() == "you"))  # you green
+
+    def test_table_box_wraps_long_combinations(self):
+        ansi.set_enabled(False)
+        client = make_client(seat=0)
+        cards = ["1", "2s", "3h", "4d", "5c", "6s", "7h", "8d", "9c", "10s", "Jh", "Qd", "Kc", "As"]
+        client.state = sample_state(wish=13, top={
+            "seat": 3, "cards": cards, "combo": "straight to A (…)", "kind": "straight",
+            "power": 14, "size": 14, "bomb": False})
+        box = [l[20:44] for l in client.seating() if "│" in l]
+        self.assertEqual(box, [
+            "│ straight to A        │",
+            "│ [1 2♠ 3♥ 4♦ 5♣ 6♠ 7♥ │",
+            "│ 8♦ 9♣ 10♠ J♥ Q♦ K♣   │",
+            "│ A♠]                  │",
+            "│ by Right · 0 pts     │",
+            "│ wish: K              │",
+        ])
 
     def test_bomb_and_dragon_flash_the_window(self):
         ansi.set_enabled(True)

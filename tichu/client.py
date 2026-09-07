@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -60,6 +61,46 @@ def cards_str(codes: list[str]) -> str:
     return " ".join(card_str(c) for c in codes)
 
 
+def combo_label(combo: str) -> str:
+    """A combination's name for the log, minus the cards (they are printed
+    right next to it): 'single A♦' -> 'single', 'pair (9♥ 9♣)' -> 'pair'.
+    'straight to 7 (...)' keeps its 'to 7' - that part is information."""
+    label = combo.split("(")[0].strip()
+    return "single" if label.startswith("single ") else label
+
+
+BOARD_WIDTH = 62      # the rules the board is drawn between
+SIDE_W, BOX_W = 17, 24  # seats left/right of the table box: 2+17+1+24+1+17 = 62
+FLASH_SECONDS = 0.35  # how long the window stays green / red
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def vis(s: str) -> str:
+    """The text as it will appear on screen: color codes removed."""
+    return _ANSI_RE.sub("", s)
+
+
+def ljust(s: str, width: int) -> str:
+    return s + " " * max(0, width - len(vis(s)))
+
+
+def wrap(tokens: list[str], width: int) -> list[str]:
+    """Pack (possibly colored) tokens into lines no wider than `width`."""
+    lines: list[str] = []
+    cur = ""
+    for tok in tokens:
+        cand = f"{cur} {tok}" if cur else tok
+        if cur and len(vis(cand)) > width:
+            lines.append(cur)
+            cur = tok
+        else:
+            cur = cand
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 class Client:
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -69,6 +110,8 @@ class Client:
         self.state: Optional[dict] = None
         self.writer: Optional[asyncio.StreamWriter] = None
         self._last_prompt_sig = None
+        self.no_flash = bool(getattr(args, "no_flash", False)
+                             or os.environ.get("TICHU_NO_FLASH"))
 
     # ------------------------------------------------------------- #
     # small helpers
@@ -81,16 +124,19 @@ class Client:
         return self.state["names"] if self.state else ["?"] * 4
 
     def pname(self, seat: Optional[int]) -> str:
+        """A player's name: your side in green (you in bold, your partner
+        starred), the opponents in the plain text color."""
         if seat is None:
             return "?"
         n = self.names()[seat]
+        color = self.team_color(seat % 2)
         if self.seat is None:
-            return n
+            return color(n)
         if seat == self.seat:
-            return ansi.bold("you")
+            return ansi.bold(color("you"))
         if seat == (self.seat + 2) % 4:
-            return f"{n}*"  # partner
-        return n
+            return color(f"{n}*")  # partner
+        return color(n)
 
     def my_team(self) -> int:
         return (self.seat or 0) % 2
@@ -99,6 +145,14 @@ class Client:
         if self.seat is None:
             return ["N/S", "E/W"][team]
         return "WE" if team == self.my_team() else "THEY"
+
+    def team_color(self, team: int):
+        """Green for your side (N/S when spectating); the other side is left
+        uncolored, so red stays reserved for bombs, errors and hearts."""
+        return ansi.green if team == self.my_team() else str
+
+    def team_name(self, team: int) -> str:
+        return self.team_color(team)(self.team_label(team))
 
     def hand_cards(self) -> list[Card]:
         if not self.state or "hand" not in self.state:
@@ -128,8 +182,8 @@ class Client:
         mine, theirs = self.my_team(), 1 - self.my_team()
         return (
             f"hand {st['hand_no']} · "
-            f"{self.team_label(mine)} {ansi.bold(str(st['scores'][mine]))} : "
-            f"{self.team_label(theirs)} {ansi.bold(str(st['scores'][theirs]))} "
+            f"{self.team_name(mine)} {ansi.bold(str(st['scores'][mine]))} : "
+            f"{self.team_name(theirs)} {ansi.bold(str(st['scores'][theirs]))} "
             f"(playing to {st['target']})"
         )
 
@@ -138,39 +192,145 @@ class Client:
         if not st:
             print(ansi.dim("no game state yet"))
             return
-        me = self.seat if self.seat is not None else 0
         print()
-        print(ansi.dim("─" * 62))
+        print(ansi.dim("─" * BOARD_WIDTH))
         print(f"  {self.show_scores_line()}")
-        marks = []
-        for s in range(4):
-            call = st["calls"][s]
-            tag = ""
-            if call:
-                tag = ansi.byellow(" GRAND!") if call == "grand" else ansi.yellow(" tichu!")
-            out = ""
-            if s in st["out_order"]:
-                out = ansi.dim(f" out#{st['out_order'].index(s) + 1}")
-            conn = "" if st.get("connected", [True] * 4)[s] else ansi.bred(" ⚠offline")
-            marks.append(f"{self.pname(s)} · {st['hand_counts'][s]}🂠{tag}{out}{conn}")
-        print(f"      partner: {marks[(me + 2) % 4]}")
-        print(f"  prev: {marks[(me + 3) % 4]}    next: {marks[(me + 1) % 4]}")
-        print(f"      {marks[me]}" if self.seat is not None else f"      (spectating)")
-        top = st.get("top")
-        if top:
-            pts = st.get("trick_points", 0)
-            print(f"  table: {top['combo'].split('(')[0].strip()} "
-                  f"[{cards_str(top['cards'])}] by {self.pname(top['seat'])}"
-                  f" · {pts} pts in trick")
-        elif st["phase"] == "playing":
-            who = "your lead" if st["turn"] == self.seat else self.pname(st["turn"]) + " leads"
-            print(f"  table: {ansi.dim('empty — ' + who)}")
-        if st.get("wish"):
-            print(f"  {ansi.magenta('Mah Jong wish active: ' + rank_to_str(st['wish']))}")
+        if self.seat is None:
+            print(ansi.dim("  (spectating)"))
+        for line in self.seating():
+            print(line)
         if self.seat is not None and "hand" in st:
             hand = st["hand"]
             print(f"  your hand ({len(hand)}): {cards_str(hand)}")
-        print(ansi.dim("─" * 62))
+        print(ansi.dim("─" * BOARD_WIDTH))
+
+    def seating(self) -> list[str]:
+        """The table as seen from your chair: partner across, the opponents to
+        your left (plays next) and right (played before you), you at the
+        bottom - and what lies on the table in the middle. Spectators look
+        over seat 0's shoulder."""
+        me = self.seat if self.seat is not None else 0
+        roles = {me: "", (me + 2) % 4: "partner", (me + 1) % 4: "next", (me + 3) % 4: "prev"}
+        if self.seat is None:  # spectators: seat numbers as in the lobby, no roles
+            roles = {s: "" for s in range(4)}
+        waiting = self._waiting_on()
+        across, left, right, you = (
+            self._seat_block((me + k) % 4, roles[(me + k) % 4], waiting) for k in (2, 1, 3, 0)
+        )
+        box = self._table_box(min_rows=max(3, len(left) - 2, len(right) - 2))
+        lines = self._centered(across)
+        lo, ro = (len(box) - len(left)) // 2, (len(box) - len(right)) // 2
+        for i, row in enumerate(box):
+            l = left[i - lo] if 0 <= i - lo < len(left) else ""
+            r = right[i - ro] if 0 <= i - ro < len(right) else ""
+            lines.append(f"  {ljust(l, SIDE_W)} {row} {r}".rstrip())
+        lines += self._centered(you)
+        return lines
+
+    def _waiting_on(self) -> set[int]:
+        """Seats whose action the table is waiting for (marked ▸)."""
+        st = self.state
+        phase = st["phase"]
+        if phase == "playing":
+            return {st["turn"]} if st.get("turn") is not None else set()
+        if phase == "dragon_gift":
+            return {st["dragon_chooser"]} if st.get("dragon_chooser") is not None else set()
+        if phase == "grand_tichu":
+            return {s for s in range(4) if not st["picked_up"][s]}
+        if phase == "exchange":
+            return {s for s in range(4) if not st.get("exchanged", [True] * 4)[s]}
+        return set()
+
+    def _seat_block(self, s: int, role: str, waiting: set[int]) -> list[str]:
+        """One player: name (team-colored, ▸ if it is their move), role and
+        card count, then any tichu / out / offline tags. Every line fits the
+        side columns, so the table box never moves."""
+        st = self.state
+        color = self.team_color(s % 2)
+        seat_no = f"[{s}] " if self.seat is None else ""
+        name = "you" if s == self.seat else self.names()[s]
+        cap = SIDE_W - 2 - len(seat_no)
+        if len(name) > cap:
+            name = name[:cap - 1] + "…"
+        mark = ansi.cyan("▸ ") if s in waiting else "  "
+        n = st["hand_counts"][s]
+        info = (ansi.dim(f"{role} · ") if role else "") + f"{n} card{'s' if n != 1 else ''}"
+        lines = [mark + (ansi.dim(seat_no) if seat_no else "")
+                 + (ansi.bold(color(name)) if s == self.seat else color(name)),
+                 "  " + info]
+        tags = []
+        if st["calls"][s] == "grand":
+            tags.append(ansi.byellow("GRAND!"))
+        elif st["calls"][s]:
+            tags.append(ansi.yellow("tichu!"))
+        if s in st["out_order"]:
+            tags.append(ansi.dim(f"out#{st['out_order'].index(s) + 1}"))
+        if not st.get("connected", [True] * 4)[s]:
+            tags.append(ansi.bred("offline"))
+        if tags:
+            joined = " · ".join(tags)
+            lines += ["  " + joined] if len(vis(joined)) + 2 <= SIDE_W else ["  " + t for t in tags]
+        return lines
+
+    def _table_box(self, min_rows: int) -> list[str]:
+        """The middle of the table: the combination to beat (cards once, who
+        played it, points in the trick), an active wish, or why it is empty."""
+        st = self.state
+        inner = BOX_W - 4
+        rows: list[str] = []
+        top = st.get("top")
+        if top:
+            label = combo_label(top["combo"])
+            cards = [card_str(c) for c in top["cards"]]
+            cards[0] = "[" + cards[0]
+            cards[-1] = cards[-1] + "]"
+            one_line = " ".join([label, *cards])
+            if len(vis(one_line)) <= inner:
+                rows.append(one_line)
+            else:
+                rows += wrap(label.split(), inner) + wrap(cards, inner)
+            rows += wrap(["by", self.pname(top["seat"]), "·", f"{st.get('trick_points', 0)} pts"], inner)
+        elif st["phase"] == "playing":
+            who = "your lead" if st["turn"] == self.seat else self.pname(st["turn"]) + " leads"
+            rows += [ansi.dim("empty"), who]
+        elif st["phase"] == "dragon_gift":
+            rows += [ansi.dim("Dragon trick"), ansi.dim("to give away")]
+        else:
+            rows.append(ansi.dim({"grand_tichu": "Grand Tichu?", "exchange": "card exchange",
+                                  "game_over": "game over"}.get(st["phase"], st["phase"])))
+        if st.get("wish"):
+            rows.append(ansi.magenta(f"wish: {rank_to_str(st['wish'])}"))
+        rows += [""] * (min_rows - len(rows))
+        bar = ansi.dim("│")
+        return [ansi.dim("┌" + "─" * (BOX_W - 2) + "┐"),
+                *(f"{bar} {ljust(r, inner)} {bar}" for r in rows),
+                ansi.dim("└" + "─" * (BOX_W - 2) + "┘")]
+
+    @staticmethod
+    def _centered(block: list[str]) -> list[str]:
+        """A block of lines, left-aligned to each other, centered on the board."""
+        width = max(len(vis(l)) for l in block)
+        pad = " " * ((BOARD_WIDTH - width) // 2)
+        return [(pad + l).rstrip() for l in block]
+
+    def flash(self, color: str, text: str) -> None:
+        """Shout: a full-width colored bar in the log and - where the terminal
+        understands OSC 11 - a brief flash of the whole window (the browser
+        page flashes too). --no-flash / TICHU_NO_FLASH=1 keeps only the bar."""
+        paint = ansi.on_green if color == "green" else ansi.on_red
+        if not self.no_flash:
+            sys.stdout.write(ansi.flash_on(color))
+        print(paint(f"  {text}".ljust(BOARD_WIDTH)))
+        if not self.no_flash and ansi.enabled():
+            try:
+                asyncio.get_running_loop().call_later(FLASH_SECONDS, self._unflash)
+            except RuntimeError:  # no event loop running (tests): undo at once
+                self._unflash()
+
+    @staticmethod
+    def _unflash() -> None:
+        sys.stdout.write(ansi.flash_off())
+        sys.stdout.flush()
 
     def prompt_hint(self) -> None:
         """Context-sensitive one-liner about what is expected of you now."""
@@ -285,8 +445,8 @@ class Client:
         t = e.get("type")
         if t == "hand_start":
             print(ansi.bold(f"\n──── hand {e['hand_no']} "
-                            f"({self.team_label(0)} {e['scores'][0]} : "
-                            f"{self.team_label(1)} {e['scores'][1]}) ────"))
+                            f"({self.team_name(0)} {e['scores'][0]} : "
+                            f"{self.team_name(1)} {e['scores'][1]}) ────"))
         elif t == "called":
             word = "GRAND TICHU" if e["call"] == "grand" else "TICHU"
             print(ansi.byellow(f"  ★ {self.pname(e['seat'])} calls {word}!"))
@@ -313,11 +473,14 @@ class Client:
             else:
                 print(f"  {self.pname(e['leader'])} holds the Mah Jong and leads")
         elif t == "played":
-            tag = ""
+            print(f"  {self.pname(e['seat'])}: {combo_label(e['combo'])} "
+                  f"[{cards_str(e['cards'])}]")
+            who = "you" if e["seat"] == self.seat else self.names()[e["seat"]]
             if e.get("bomb"):
-                tag = ansi.bred(" 💥 BOMB") + (" (out of turn!)" if e.get("out_of_turn") else "")
-            print(f"  {self.pname(e['seat'])}: {e['combo'].split('(')[0].strip()} "
-                  f"[{cards_str(e['cards'])}]{tag}")
+                extra = " — out of turn!" if e.get("out_of_turn") else ""
+                self.flash("red", f"💥  BOMB  by {who}{extra}")
+            elif "Drg" in e["cards"]:
+                self.flash("green", f"🐉  DRAGON  played by {who}")
         elif t == "passed":
             print(ansi.dim(f"  {self.pname(e['seat'])} passes"))
         elif t == "wish_set":
@@ -348,14 +511,14 @@ class Client:
         elif t == "game_over":
             w = e["winner"]
             print(ansi.bold(ansi.green(
-                f"\n════ GAME OVER — {self.team_label(w)} win "
+                f"\n════ GAME OVER — {self.team_name(w)} win "
                 f"{e['scores'][w]} : {e['scores'][1 - w]} ════")))
             print(ansi.dim("  type 'rematch' to play again"))
 
     def print_hand_end(self, e: dict) -> None:
         print(ansi.bold("  ── hand result ──"))
         if e["double_win"]:
-            team = self.team_label(e["first_out"] % 2)
+            team = self.team_name(e["first_out"] % 2)
             print(ansi.byellow(f"  DOUBLE WIN for {team} (+{200})!"))
         else:
             print(f"  first out: {self.pname(e['first_out'])}")
@@ -364,9 +527,9 @@ class Client:
             what = "grand tichu" if b["call"] == "grand" else "tichu"
             print(f"  {self.pname(b['seat'])} {what}: {sign}{b['delta']}")
         t0, t1 = e["team_points"]
-        print(f"  this hand: {self.team_label(0)} {t0:+} · {self.team_label(1)} {t1:+}")
+        print(f"  this hand: {self.team_name(0)} {t0:+} · {self.team_name(1)} {t1:+}")
         s0, s1 = e["scores"]
-        print(ansi.bold(f"  totals:    {self.team_label(0)} {s0} · {self.team_label(1)} {s1}"))
+        print(ansi.bold(f"  totals:    {self.team_name(0)} {s0} · {self.team_name(1)} {s1}"))
 
     # ------------------------------------------------------------- #
     # user input
@@ -576,6 +739,8 @@ def main() -> None:
     ap.add_argument("--token", default=None, help="reconnect token (usually automatic)")
     ap.add_argument("--fresh", action="store_true", help="ignore any saved session token")
     ap.add_argument("--no-color", action="store_true")
+    ap.add_argument("--no-flash", action="store_true",
+                    help="don't flash the window on bombs / the Dragon (or TICHU_NO_FLASH=1)")
     args = ap.parse_args()
     if args.no_color:
         ansi.set_enabled(False)

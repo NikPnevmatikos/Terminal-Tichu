@@ -10,10 +10,16 @@ Pure Python 3.10+ standard library. Nothing to install.
 ```
 ──────────────────────────────────────────────────────────────
   hand 3 · WE 240 : THEY 185 (playing to 1000)
-      partner: Maria* · 11🂠 tichu!
-  prev: Alex · 8🂠    next: Kostas · 14🂠
-      you · 11🂠
-  table: pair [9♥ 9♣] by Kostas · 15 pts in trick
+                       Maria
+                       partner · 11 cards
+                       tichu!
+                    ┌──────────────────────┐
+    Kostas          │ pair [9♥ 9♣]         │   Alex
+    next · 14 cards │ by Kostas · 15 pts   │   prev · 8 cards
+                    │                      │
+                    └──────────────────────┘
+                          ▸ you
+                            11 cards
   your hand (11): Dog 1 2♥ 5♠ 5♦ 8♣ 10♥ J♦ Q♠ K♥ Phx
 ──────────────────────────────────────────────────────────────
   → your turn: beat it or pass
@@ -107,6 +113,15 @@ Sword, Star, Pagoda and Jade). The specials are `1` (Mah Jong), `dog`,
 
 Typing bare card codes (`5s 5d`) is also accepted as a play.
 
+Your side is always **green** in the log (the opponents stay uncolored).
+The board is the table seen from your chair: partner across, the opponent who
+plays next on your left, the one who played before you on your right, and
+whatever lies on the table in the middle; `▸` marks whoever everyone is
+waiting for. When someone throws a **bomb** the window flashes
+**red**; when the **Dragon** is played it flashes **green** (a colored bar
+is printed as well, so a terminal that ignores the flash still shouts).
+Pass `--no-flash` (or set `TICHU_NO_FLASH=1`) to keep just the bar.
+
 ## The rules, as implemented
 
 The full Fata Morgana rules:
@@ -159,7 +174,8 @@ tichu/
   server.py    authoritative asyncio TCP server: lobby, seats, reconnect
                tokens, spectators, bot seats, rematch votes
   client.py    the terminal UI: event log + board renders + command parser
-  ansi.py      colors (honours NO_COLOR / non-TTY)
+  ansi.py      colors & the window flash (honours NO_COLOR / non-TTY)
+  web.py       browser gateway: a client subprocess per visitor, over SSE
 ```
 
 Design notes:
@@ -187,12 +203,13 @@ Design notes:
 python -m unittest discover -s tests -v
 ```
 
-~45 tests cover combination identification (cross-checked against a
+~50 tests cover combination identification (cross-checked against a
 brute-force enumerator on random hands), trick mechanics, the wish, Dog,
 Dragon gifting, bombs in and out of turn, double wins, scoring transfers
 and bonuses, full bot-vs-bot games on many seeds with per-hand scoring
 invariants (every hand's card points total exactly 100), a complete game
-played over real sockets, and the client's renderer and command parser.
+played over real sockets, the client's renderer (players table, flashes)
+and command parser, and the web gateway's history replay.
 
 ## Credits & license
 

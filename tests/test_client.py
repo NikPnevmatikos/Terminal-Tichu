@@ -111,7 +111,7 @@ class TestClientRendering(unittest.TestCase):
             dragon_chooser=0, dragon_targets=[3],
         )
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            client.handle_line("dragon left")  # Left is out: goes to Right anyway
+            client.handle_line("dragon Left")  # Left is out: goes to Right anyway
             client.handle_line("dragon")       # no name needed with one target
             client.prompt_hint()
         self.assertEqual(sent, [{"cmd": "dragon", "to": 3}] * 2)
@@ -212,9 +212,9 @@ class TestClientRendering(unittest.TestCase):
             "                       partner · 11 cards",
             "                       tichu!",
             "                    ┌──────────────────────┐",
-            "    Left            │ single [A♦]          │   Right",
-            "    next · 0 cards  │ by Right · 0 pts     │   prev · 14 cards",
-            "    out#1           │                      │   offline",
+            "    Right           │ single [A♦]          │   Left",
+            "    prev · 14 cards │ by Right · 0 pts     │   next · 0 cards",
+            "    offline         │                      │   out#1",
             "                    └──────────────────────┘",
             "                          ▸ you",
             "                            11 cards",
@@ -236,10 +236,53 @@ class TestClientRendering(unittest.TestCase):
         self.assertEqual({(l.find("│"), l.rfind("│")) for l in plain if "│" in l}, {(20, 43)})
         self.assertIn("                       Tester", plain)  # partner across
         self.assertIn("                       GRAND!", plain)
-        self.assertIn("  ▸ Right           │ single [A♦]          │   Left", plain)
+        # play runs counter-clockwise: the seat to move next sits on your right
+        self.assertIn("    Left            │ single [A♦]          │ ▸ Right", plain)
         self.assertIn("\x1b[32m", next(l for l in lines if vis(l).strip() == "you"))  # you green
         self.assertIn("\x1b[32m", next(l for l in lines if "Tester" in vis(l)))  # partner green
         self.assertNotIn("\x1b[31m", "".join(lines))  # opponents are not colored: no red at all
+
+    def test_turn_travels_counter_clockwise_around_the_table(self):
+        ansi.set_enabled(False)
+        client = make_client(seat=0)
+        client.state = sample_state(
+            names=["Me", "Nxt", "Across", "Prv"], out_order=[], calls=[None] * 4,
+            hand_counts=[11] * 4, connected=[True] * 4,
+        )
+        lines = client.seating()
+
+        def corner(name):
+            """Where a player is drawn: around the box, or above/below it."""
+            box = [i for i, l in enumerate(lines) if set("┌│└") & set(l)]
+            i = next(i for i, l in enumerate(lines) if name in l)
+            if i < box[0]:
+                return "across"
+            if i > box[-1]:
+                return "below"
+            return "left" if lines[i].index(name) < lines[i].index("│") else "right"
+
+        # play order is you -> next -> partner -> prev, and it must read
+        # counter-clockwise on screen: bottom -> right -> top -> left
+        self.assertEqual(
+            [corner(n) for n in ("you", "Nxt", "Across", "Prv")],
+            ["below", "right", "across", "left"],
+        )
+
+    def test_dragon_left_and_right_follow_the_counter_clockwise_table(self):
+        ansi.set_enabled(False)
+        client = make_client(seat=0)
+        sent = []
+        client.send = sent.append
+        client.state = sample_state(
+            phase="dragon_gift", turn=None, top=None, out_order=[],
+            hand_counts=[11] * 4, dragon_chooser=0, dragon_targets=[1, 3],
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            client.handle_line("dragon right")  # the seat drawn on your right
+            client.handle_line("dragon left")
+            client.handle_line("dragon next")
+            client.handle_line("dragon prev")
+        self.assertEqual([m["to"] for m in sent], [1, 3, 1, 3])
 
     def test_table_box_wraps_long_combinations(self):
         ansi.set_enabled(False)

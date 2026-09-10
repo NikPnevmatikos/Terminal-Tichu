@@ -207,16 +207,19 @@ class Client:
 
     def seating(self) -> list[str]:
         """The table as seen from your chair: partner across, the opponents to
-        your left (plays next) and right (played before you), you at the
+        your right (plays next) and left (played before you), you at the
         bottom - and what lies on the table in the middle. Spectators look
-        over seat 0's shoulder."""
+        over seat 0's shoulder.
+
+        Play runs counter-clockwise, so the turn travels you -> right -> across
+        -> left -> you around the drawn table."""
         me = self.seat if self.seat is not None else 0
         roles = {me: "", (me + 2) % 4: "partner", (me + 1) % 4: "next", (me + 3) % 4: "prev"}
         if self.seat is None:  # spectators: seat numbers as in the lobby, no roles
             roles = {s: "" for s in range(4)}
         waiting = self._waiting_on()
         across, left, right, you = (
-            self._seat_block((me + k) % 4, roles[(me + k) % 4], waiting) for k in (2, 1, 3, 0)
+            self._seat_block((me + k) % 4, roles[(me + k) % 4], waiting) for k in (2, 3, 1, 0)
         )
         box = self._table_box(min_rows=max(3, len(left) - 2, len(right) - 2))
         lines = self._centered(across)
@@ -617,9 +620,9 @@ class Client:
             return None
         a, b = (self.seat + 1) % 4, (self.seat + 3) % 4
         word = args[0].lower()
-        if word in ("next", "left"):
+        if word in ("next", "right"):
             return a
-        if word in ("prev", "previous", "right"):
+        if word in ("prev", "previous", "left"):
             return b
         for s in (a, b):
             if self.names()[s].lower().startswith(word):

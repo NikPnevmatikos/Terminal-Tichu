@@ -115,10 +115,10 @@ Typing bare card codes (`5s 5d`) is also accepted as a play.
 
 Your side is always **green** in the log (the opponents stay uncolored).
 The board is the table seen from your chair: partner across, the opponent who
-plays next on your left, the one who played before you on your right, and
-whatever lies on the table in the middle; `▸` marks whoever everyone is
-waiting for. When someone throws a **bomb** the window flashes
-**red**; when the **Dragon** is played it flashes **green** (a colored bar
+plays next on your right, the one who played before you on your left, and
+whatever lies on the table in the middle — play runs counter-clockwise around
+it; `▸` marks whoever everyone is waiting for. When someone throws a **bomb**
+the window flashes **red**; when the **Dragon** is played it flashes **green** (a colored bar
 is printed as well, so a terminal that ignores the flash still shouts).
 Pass `--no-flash` (or set `TICHU_NO_FLASH=1`) to keep just the bar.
 

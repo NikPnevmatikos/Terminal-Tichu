@@ -155,9 +155,18 @@ def shuffled_deck(rng: Optional[random.Random] = None) -> list[Card]:
 _SORT_SUIT_ORDER = {Suit.SWORD: 0, Suit.STAR: 1, Suit.PAGODA: 2, Suit.JADE: 3, None: 4}
 
 
-def sort_hand(cards: Iterable[Card]) -> list[Card]:
-    """Dog first, then Mah Jong, ranks ascending, Phoenix, Dragon last."""
-    return sorted(cards, key=lambda c: (c.rank, _SORT_SUIT_ORDER[c.suit]))
+def sort_hand(cards: Iterable[Card], phoenix_as: Optional[int] = None) -> list[Card]:
+    """Dog first, then Mah Jong, ranks ascending, Phoenix, Dragon last.
+
+    Pass `phoenix_as` to sort the Phoenix by the rank it stands in for, so a
+    straight reads "2 3 4 Phx 6 7" instead of "2 3 4 6 7 Phx". It still comes
+    after a real card of that rank, which is what you want in a pair.
+    """
+    def key(c: Card) -> tuple[int, int]:
+        rank = phoenix_as if c.rank == PHOENIX and phoenix_as is not None else c.rank
+        return (rank, _SORT_SUIT_ORDER[c.suit])
+
+    return sorted(cards, key=key)
 
 
 def cards_points(cards: Iterable[Card]) -> int:

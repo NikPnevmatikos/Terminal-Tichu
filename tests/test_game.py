@@ -151,6 +151,35 @@ class TestTricks(unittest.TestCase):
         g.call_tichu(1)  # has not played yet
 
 
+class TestPhoenixOnTheWire(unittest.TestCase):
+    def test_played_cards_reach_everyone_with_the_phoenix_in_place(self):
+        g = new_game()
+        rig_deal(
+            g,
+            south=["2s", "3h", "4d", "phx", "6c", "7s"],
+            west=["Ks"],
+            north=["Qs"],
+            east=["Js"],
+        )
+        start_play(g, leader=0)
+        ev = g.play(0, C("2s", "3h", "4d", "phx", "6c", "7s"), phoenix_as=5)
+        played = [e for e in ev if e["type"] == "played"][0]
+        order = ["2s", "3h", "4d", "Phx", "6c", "7s"]
+        self.assertEqual(played["cards"], order)
+        self.assertIn("2♠ 3♥ 4♦ Phx 6♣ 7♠", played["combo"])
+        # the same order in every seat's view, on the table and in the trick
+        for seat in (None, 0, 1):
+            v = g.view(seat)
+            self.assertEqual(v["top"]["cards"], order)
+            self.assertEqual(v["trick"][0]["cards"], order)
+
+    def test_an_unplayed_phoenix_still_sorts_last_in_your_hand(self):
+        g = new_game()
+        rig_deal(g, south=["2s", "phx", "5h"], west=["Ks"], north=["Qs"], east=["Js"])
+        start_play(g, leader=0)
+        self.assertEqual(g.view(0)["hand"], ["2s", "5h", "Phx"])
+
+
 class TestDog(unittest.TestCase):
     def test_dog_passes_lead_to_partner(self):
         g = new_game()

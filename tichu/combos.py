@@ -63,8 +63,14 @@ class Combo:
         Phoenix standing in for a rank does not count, e.g. for wishes)."""
         return any(c.rank == rank for c in self.cards)
 
+    @property
+    def ordered_cards(self) -> list[Card]:
+        """The cards as they should be shown: the Phoenix in the slot it
+        fills, rather than trailing the combination."""
+        return sort_hand(self.cards, self.phoenix_as)
+
     def describe(self) -> str:
-        cards = " ".join(c.display() for c in sort_hand(self.cards))
+        cards = " ".join(c.display() for c in self.ordered_cards)
         if self.kind is ComboKind.DOG:
             return "the Dog"
         if self.kind is ComboKind.SINGLE:

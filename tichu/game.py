@@ -287,7 +287,7 @@ class TichuGame:
         self._emit(
             type="played",
             seat=seat,
-            cards=[c.code for c in sort_hand(cards)],
+            cards=[c.code for c in combo.ordered_cards],
             combo=combo.describe(),
             kind=combo.kind.value,
             bomb=combo.is_bomb,
@@ -488,7 +488,7 @@ class TichuGame:
             "trick": [
                 {
                     "seat": s,
-                    "cards": [c.code for c in sort_hand(combo.cards)],
+                    "cards": [c.code for c in combo.ordered_cards],
                     "combo": combo.describe(),
                     "bomb": combo.is_bomb,
                 }
@@ -497,7 +497,7 @@ class TichuGame:
             "top": (
                 {
                     "seat": self.last_play_seat,
-                    "cards": [c.code for c in sort_hand(self.top.cards)],
+                    "cards": [c.code for c in self.top.ordered_cards],
                     "combo": self.top.describe(),
                     "kind": self.top.kind.value,
                     "power": self.top.power,

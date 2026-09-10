@@ -175,6 +175,50 @@ class TestFindPlay(unittest.TestCase):
         self.assertIsNone(combo)
 
 
+class TestDisplayOrder(unittest.TestCase):
+    """The Phoenix is shown in the slot it fills, not trailing the combo."""
+
+    def shown(self, codes, hint=None):
+        combo, reason = find_play(C(*codes), None, hint)
+        self.assertIsNotNone(combo, reason)
+        return [c.code for c in combo.ordered_cards]
+
+    def test_phoenix_sits_where_it_completes_a_straight(self):
+        self.assertEqual(
+            self.shown(["2s", "3h", "4d", "phx", "6c", "7s"]),
+            ["2s", "3h", "4d", "Phx", "6c", "7s"],
+        )
+        self.assertEqual(  # standing in below the run
+            self.shown(["phx", "3h", "4d", "5c", "6s"], hint=2),
+            ["Phx", "3h", "4d", "5c", "6s"],
+        )
+        self.assertEqual(  # standing in above it: last is right
+            self.shown(["10s", "Jh", "Qd", "Kc", "phx"], hint=14),
+            ["10s", "Jh", "Qd", "Kc", "Phx"],
+        )
+
+    def test_phoenix_sits_with_the_rank_it_doubles(self):
+        self.assertEqual(
+            self.shown(["8s", "8h", "Kd", "Kc", "phx"], hint=8),
+            ["8s", "8h", "Phx", "Kd", "Kc"],
+        )
+        self.assertEqual(
+            self.shown(["5s", "5h", "6d", "phx", "7c", "7s"], hint=6),
+            ["5s", "5h", "6d", "Phx", "7s", "7c"],
+        )
+        # after the real card of the same rank, never before it
+        self.assertEqual(self.shown(["9s", "phx"], hint=9), ["9s", "Phx"])
+
+    def test_a_combo_without_a_phoenix_is_untouched(self):
+        self.assertEqual(
+            self.shown(["3h", "4s", "5d", "6c", "7s"]),
+            ["3h", "4s", "5d", "6c", "7s"],
+        )
+
+    def test_a_lone_phoenix_has_no_rank_to_sit_at(self):
+        self.assertEqual(self.shown(["phx"]), ["Phx"])
+
+
 class TestLegalPlays(unittest.TestCase):
     def brute_force(self, hand, top):
         """Reference implementation: full subset enumeration."""

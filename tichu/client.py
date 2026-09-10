@@ -35,6 +35,7 @@ commands
   t | tichu                                  call Tichu (before your first play)
   x <c1> <c2> <c3>                           exchange: to next, partner, previous
   dragon <name|next|prev>                    give a Dragon trick to an opponent
+                                             (one who still has cards)
   hand | h      show your hand               board | s     show the full board
   say <text>                                 chat          who    seats
   rematch                                    vote to play again
@@ -356,9 +357,10 @@ class Client:
                 extra = "" if can else ansi.dim(" (nothing beats it — pass, or bomb)")
                 print(f"  {ansi.cyan('→ your turn: beat it or')} {ansi.bold('pass')}{extra}")
         elif phase == "dragon_gift" and st.get("dragon_chooser") == me:
-            a, b = (me + 1) % 4, (me + 3) % 4
-            print(f"  {ansi.cyan('→ give the Dragon trick away:')} "
-                  f"dragon {self.names()[a]}  |  dragon {self.names()[b]}")
+            choices = "  |  ".join(
+                f"dragon {self.names()[s]}" for s in self._dragon_choices()
+            )
+            print(f"  {ansi.cyan('→ give the Dragon trick away:')} {choices}")
 
     def maybe_prompt(self) -> None:
         st = self.state
@@ -598,8 +600,20 @@ class Client:
                 print(ansi.bred(f"✗ unknown command '{cmd}' — try 'help'"))
         return True
 
+    def _dragon_choices(self) -> list[int]:
+        """Opponents the server will accept the Dragon trick for."""
+        assert self.seat is not None
+        both = [(self.seat + 1) % 4, (self.seat + 3) % 4]
+        allowed = (self.state or {}).get("dragon_targets")
+        return [s for s in both if s in allowed] if allowed else both
+
     def _dragon_target(self, args: list[str]) -> Optional[int]:
-        if self.seat is None or not args:
+        if self.seat is None:
+            return None
+        choices = self._dragon_choices()
+        if len(choices) == 1:
+            return choices[0]  # the other opponent is out; no ambiguity to name
+        if not args:
             return None
         a, b = (self.seat + 1) % 4, (self.seat + 3) % 4
         word = args[0].lower()

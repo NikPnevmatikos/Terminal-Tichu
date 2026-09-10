@@ -1,6 +1,7 @@
 import random
 import unittest
 
+from tichu.bot import Bot
 from tichu.cards import MAHJONG, full_deck, parse_card
 from tichu.game import IllegalAction, Phase, TichuGame
 
@@ -367,6 +368,55 @@ class TestDragon(unittest.TestCase):
         self.assertEqual(g.view(0)["pile_points"][1], 30)
         self.assertIs(g.phase, Phase.PLAYING)
         self.assertEqual(g.turn, 1)  # south is out; next active leads
+
+    def test_dragon_cannot_go_to_an_opponent_who_is_out(self):
+        g = new_game()
+        rig_deal(
+            g,
+            south=["2h", "drg"],
+            west=["3h"],           # west sheds their last card in trick one
+            north=["4h", "7h"],
+            east=["5h", "8h"],
+        )
+        start_play(g, leader=0)
+        g.play(0, C("2h"))
+        g.play(1, C("3h"))         # west goes out
+        g.play(2, C("4h"))
+        g.play(3, C("5h"))
+        self.assertEqual(g.out_order, [1])
+        g.play(0, C("drg"))
+        g.pass_turn(2)
+        g.pass_turn(3)
+        self.assertIs(g.phase, Phase.DRAGON_GIFT)
+        self.assertEqual(g.dragon_targets(0), (3,))
+        self.assertEqual(g.view(0)["dragon_targets"], [3])
+        with self.assertRaises(IllegalAction):
+            g.give_dragon(0, 1)    # west is already out
+        self.assertIs(g.phase, Phase.DRAGON_GIFT)
+        self.assertEqual(g.view(0)["pile_points"], [0, 0, 0, 0])
+        ev = g.give_dragon(0, 3)
+        gift = [e for e in ev if e["type"] == "dragon_given"][0]
+        self.assertEqual(gift["to"], 3)
+        self.assertEqual(g.view(0)["pile_points"][3], 30)  # 5 + Dragon 25
+
+    def test_bot_never_gifts_the_dragon_to_a_finished_opponent(self):
+        g = new_game()
+        rig_deal(
+            g,
+            south=["2h", "drg"],
+            west=["3h"],
+            north=["4h", "7h"],
+            east=["5h", "8h"],
+        )
+        start_play(g, leader=0)
+        g.play(0, C("2h"))
+        g.play(1, C("3h"))
+        g.play(2, C("4h"))
+        g.play(3, C("5h"))
+        g.play(0, C("drg"))
+        g.pass_turn(2)
+        g.pass_turn(3)
+        self.assertEqual(Bot(0).choose_dragon_gift(g), 3)
 
 
 class TestScoring(unittest.TestCase):

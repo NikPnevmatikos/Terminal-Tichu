@@ -106,7 +106,7 @@ Sword, Star, Pagoda and Jade). The specials are `1` (Mah Jong), `dog`,
 | `p 3h 4s 5d 6c phx as 7` | choose what the Phoenix stands for when ambiguous |
 | `p 5s 5h 5d 5c` | bombs are just plays — legal even out of turn |
 | `pass` (or `.`) | pass |
-| `dragon <name>` (or `next`/`prev`) | give a Dragon-won trick to an opponent |
+| `dragon <name>` (or `next`/`prev`) | give a Dragon-won trick to an opponent who still has cards |
 | `hand`, `board`, `score`, `who` | show your cards / the table / totals / seats |
 | `say <text>` | table chat |
 | `help`, `quit` | the rest |
@@ -152,7 +152,7 @@ The full Fata Morgana rules:
   As a single it beats the previous single by half a step (1.5 when led)
   and never beats the Dragon. Worth −25.
 * **Dragon**: highest single, worth +25 — but a trick won with the Dragon
-  must be given to an opponent of your choice.
+  must be given to an opponent of your choice who is still holding cards.
 * **Going out & scoring**: the hand ends when the third player sheds their
   last card (the final trick is still fought out). The last player's
   remaining hand goes to the opposing team and their tricks to whoever went

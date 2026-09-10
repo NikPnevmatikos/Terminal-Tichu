@@ -101,6 +101,23 @@ class TestClientRendering(unittest.TestCase):
         self.assertIn("takes the trick", text)
         self.assertNotIn("Traceback", text)
 
+    def test_dragon_command_follows_the_servers_legal_targets(self):
+        ansi.set_enabled(False)
+        client = make_client(seat=0)
+        sent = []
+        client.send = sent.append
+        client.state = sample_state(
+            phase="dragon_gift", turn=None, top=None,
+            dragon_chooser=0, dragon_targets=[3],
+        )
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            client.handle_line("dragon left")  # Left is out: goes to Right anyway
+            client.handle_line("dragon")       # no name needed with one target
+            client.prompt_hint()
+        self.assertEqual(sent, [{"cmd": "dragon", "to": 3}] * 2)
+        self.assertIn("dragon Right", out.getvalue())
+        self.assertNotIn("dragon Left", out.getvalue())
+
     def test_command_parsing(self):
         ansi.set_enabled(False)
         client = make_client(seat=0)

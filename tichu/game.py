@@ -13,6 +13,7 @@ Hand lifecycle:
   EXCHANGE     - everyone passes one card to each other player
   PLAYING      - tricks; the Mah Jong holder leads the first one
   DRAGON_GIFT  - a trick won with the Dragon must be given to an opponent
+                 who is still holding cards
   GAME_OVER    - a team reached the target with the higher score
 """
 
@@ -362,11 +363,29 @@ class TichuGame:
         self._emit(type="trick_won", seat=winner, points=points, cards=len(cards))
         self._after_trick(winner)
 
+    def dragon_targets(self, seat: int) -> tuple[int, ...]:
+        """Opponents a Dragon trick may be handed to: those still in the hand.
+
+        Giving it to someone who is already out would bury the points -- their
+        pile is swept to the first player out (or dropped entirely on a double
+        win), so the trick would never reach the team that is meant to eat it.
+        Both opponents being out cannot happen (they are teammates, so that is
+        a double win and the hand is over); the fallback only keeps a corrupt
+        state from wedging the game.
+        """
+        live = tuple(s for s in opponents(seat) if self._active(s))
+        return live or opponents(seat)
+
     def give_dragon(self, seat: int, to_seat: int) -> list[dict]:
         self._check_seat(seat)
         self._require(self.phase is Phase.DRAGON_GIFT, "there is no Dragon trick to give")
         self._require(seat == self.dragon_chooser, "you did not win the Dragon trick")
         self._require(to_seat in opponents(seat), "the Dragon trick goes to an opponent")
+        self._require(
+            to_seat in self.dragon_targets(seat),
+            f"{self.names[to_seat]} is already out - "
+            "the Dragon trick goes to an opponent who still has cards",
+        )
         cards = self._dragon_trick
         self._dragon_trick = []
         self.dragon_chooser = None
@@ -493,6 +512,11 @@ class TichuGame:
             ),
             "pile_points": [cards_points(p) for p in self.piles],
             "dragon_chooser": self.dragon_chooser,
+            "dragon_targets": (
+                list(self.dragon_targets(self.dragon_chooser))
+                if self.dragon_chooser is not None
+                else []
+            ),
             "last_hand": self.last_hand_summary,
             "winner": self.winner,
         }

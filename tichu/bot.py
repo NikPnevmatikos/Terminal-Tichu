@@ -57,8 +57,10 @@ class Bot:
         return [rest[0], to_partner, rest[1]]
 
     def choose_dragon_gift(self, game: TichuGame) -> int:
-        a, b = opponents(self.seat)
-        return a if len(game.hands[a]) >= len(game.hands[b]) else b
+        # Only opponents still holding cards may take it; among those, the one
+        # with the most cards left has the least chance of dumping the points.
+        targets = game.dragon_targets(self.seat)
+        return max(targets, key=lambda s: len(game.hands[s]))
 
     def choose_play(self, game: TichuGame) -> Optional[Combo]:
         """A combo to play, or None to pass (never None when leading)."""

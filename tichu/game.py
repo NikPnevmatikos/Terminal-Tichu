@@ -268,9 +268,6 @@ class TichuGame:
                        combo="the Dog", kind="dog", bomb=False, out_of_turn=False)
             if self._check_out(seat):
                 return self._collect()
-            if len(self.out_order) >= 3:
-                self._score_hand(double_win=False)
-                return self._collect()
             self.leader = new_leader
             self.turn = new_leader
             self._emit(type="dog", seat=seat, to=new_leader)
@@ -321,14 +318,27 @@ class TichuGame:
         return any(self._active(s) for s in range(4))
 
     def _check_out(self, seat: int) -> bool:
-        """Handle a possibly-emptied hand. Returns True if the hand ended
-        immediately (double win) and no further advancement should occur."""
+        """Handle a possibly-emptied hand. Returns True if the hand ended and
+        no further advancement should occur.
+
+        The hand is over as soon as the third player sheds their last card
+        (or on a double win). The last player never gets another turn: the
+        trick still on the table goes to whoever played last on it, i.e. the
+        player who just went out - if it holds the Dragon it is still handed
+        to an opponent first.
+        """
         if self.hands[seat]:
             return False
         self.out_order.append(seat)
         self._emit(type="went_out", seat=seat, place=len(self.out_order))
         if len(self.out_order) == 2 and TEAM_OF[self.out_order[0]] == TEAM_OF[self.out_order[1]]:
             self._score_hand(double_win=True)
+            return True
+        if len(self.out_order) >= 3:
+            if self.top is not None:
+                self._close_trick()
+            else:
+                self._score_hand(double_win=False)
             return True
         return False
 
@@ -413,11 +423,8 @@ class TichuGame:
         if double_win:
             team_points[TEAM_OF[first]] += DOUBLE_WIN_BONUS
         else:
-            # Normally one player is left holding cards; if the 4th player
-            # shed their last cards on the final trick they count as "last"
-            # with an empty hand.
-            remaining = [s for s in range(4) if s not in self.out_order]
-            last = remaining[0] if remaining else self.out_order[3]
+            # Exactly one player is left holding cards.
+            (last,) = [s for s in range(4) if s not in self.out_order]
             # The last player's tricks go to whoever went out first...
             self.piles[first].extend(self.piles[last])
             self.piles[last] = []

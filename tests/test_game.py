@@ -468,8 +468,7 @@ class TestScoring(unittest.TestCase):
         g.play(3, C("kh"))
         g.pass_turn(0)
         # trick closes at east: 2h+5h+9h+kh = 15 points to east's pile
-        g.play(3, C("ks"))  # east out - three out, but south may still beat
-        g.pass_turn(0)
+        g.play(3, C("ks"))  # east out - three out, the hand ends at once
         summary = g.last_hand_summary
         self.assertIsNotNone(summary)
         self.assertFalse(summary["double_win"])
@@ -481,6 +480,95 @@ class TestScoring(unittest.TestCase):
         # target 10 reached: game over
         self.assertIs(g.phase, Phase.GAME_OVER)
         self.assertEqual(g.winner, 1)
+
+    def test_hand_ends_the_moment_the_third_player_is_out(self):
+        g = new_game()
+        rig_deal(
+            g,
+            south=["2h", "3s", "ts"],
+            west=["5h"],
+            north=["9h"],
+            east=["kh", "ks"],
+        )
+        start_play(g, leader=0)
+        g.play(0, C("2h"))
+        g.play(1, C("5h"))  # west out first
+        g.play(2, C("9h"))  # north out second (opponents: no double win)
+        g.play(3, C("kh"))
+        g.pass_turn(0)  # 2h+5h+9h+kh = 15 points to east
+        ev = g.play(3, C("ks"))  # east out third: south never gets a turn
+        types = [e["type"] for e in ev]
+        out = [e for e in ev if e["type"] == "went_out"][0]
+        self.assertEqual((out["seat"], out["place"]), (3, 3))
+        # the open trick goes to the player who just went out, then scoring
+        self.assertLess(types.index("went_out"), types.index("trick_won"))
+        self.assertLess(types.index("trick_won"), types.index("hand_end"))
+        won = [e for e in ev if e["type"] == "trick_won"][0]
+        self.assertEqual((won["seat"], won["points"]), (3, 10))
+        summary = g.last_hand_summary
+        self.assertFalse(summary["double_win"])
+        self.assertEqual(summary["first_out"], 1)
+        # team 1: east's tricks 15 + 10; south's hand (3s, Ts = 10) also to team 1
+        self.assertEqual(summary["team_points"], [0, 35])
+        # a new hand has been dealt - south cannot act on the finished one
+        self.assertIsNot(g.phase, Phase.PLAYING)
+        with self.assertRaises(IllegalAction):
+            g.pass_turn(0)
+        with self.assertRaises(IllegalAction):
+            g.play(0, C("ts"))
+
+    def test_hand_ends_at_once_when_the_third_player_is_out_with_a_bomb(self):
+        g = new_game()
+        rig_deal(
+            g,
+            south=["2h", "3s"],
+            west=["5h"],
+            north=["9h"],
+            east=["kh", "4h", "4s", "4d", "4c"],
+        )
+        start_play(g, leader=0)
+        g.play(0, C("2h"))
+        g.play(1, C("5h"))
+        g.play(2, C("9h"))
+        g.play(3, C("kh"))
+        g.pass_turn(0)
+        g.play(3, C("4h", "4s", "4d", "4c"))  # east out third with a bomb
+        summary = g.last_hand_summary
+        self.assertIsNotNone(summary)
+        self.assertEqual(summary["first_out"], 1)
+        self.assertEqual(summary["team_points"], [0, 15])
+
+    def test_dragon_on_the_final_trick_is_still_gifted(self):
+        g = new_game()
+        rig_deal(
+            g,
+            south=["2h", "3s"],
+            west=["5h"],
+            north=["9h"],
+            east=["kh", "drg"],
+        )
+        start_play(g, leader=0)
+        g.play(0, C("2h"))
+        g.play(1, C("5h"))
+        g.play(2, C("9h"))
+        g.play(3, C("kh"))
+        g.pass_turn(0)
+        ev = g.play(3, C("drg"))  # east out third with the Dragon
+        self.assertEqual(g.out_order, [1, 2, 3])
+        self.assertIn("dragon_pending", [e["type"] for e in ev])
+        self.assertIs(g.phase, Phase.DRAGON_GIFT)
+        self.assertIsNone(g.last_hand_summary)
+        # the only opponent still holding cards is south
+        self.assertEqual(g.dragon_targets(3), (0,))
+        with self.assertRaises(IllegalAction):
+            g.give_dragon(3, 2)
+        ev = g.give_dragon(3, 0)
+        self.assertIn("hand_end", [e["type"] for e in ev])
+        summary = g.last_hand_summary
+        self.assertFalse(summary["double_win"])
+        # south was last: the Dragon trick (25) in south's pile is swept to
+        # west (first out), east keeps 15, south's 3s is worth 0.
+        self.assertEqual(summary["team_points"], [0, 40])
 
     def test_double_win(self):
         g = new_game()

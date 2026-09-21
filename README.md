@@ -153,10 +153,11 @@ The full Fata Morgana rules:
   and never beats the Dragon. Worth −25.
 * **Dragon**: highest single, worth +25 — but a trick won with the Dragon
   must be given to an opponent of your choice who is still holding cards.
-* **Going out & scoring**: the hand ends when the third player sheds their
-  last card (the final trick is still fought out). The last player's
-  remaining hand goes to the opposing team and their tricks to whoever went
-  out first. Kings and tens score 10, fives score 5 (100 points per hand).
+* **Going out & scoring**: the hand ends the moment the third player sheds
+  their last card; the trick on the table goes to them (a Dragon trick is
+  still gifted to an opponent). The last player's remaining hand goes to the
+  opposing team and their tricks to whoever went out first. Kings and tens
+  score 10, fives score 5 (100 points per hand).
   If both partners go out before either opponent, the hand is a **double
   win**: 200 points, no card counting. First team to 1000 wins; ties play on.
 
